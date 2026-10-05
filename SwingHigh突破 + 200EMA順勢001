@@ -1,0 +1,75 @@
+//策略：SwingHigh突破 + 200EMA順勢 + 成交量過濾 + 吊燈跟蹤止損 + 時間區間過濾
+Inputs:
+    EMA_Length(200),
+    SwingLookback(2),
+    ChandelierATR(2),
+    ATR_Length(14),
+    VolLength(20),       // 平均成交量週期
+    StartTime(0935),     // 新增：允許下單起始時間 (09:35)
+    EndTime(1045);       // 新增：允許下單截止時間 (10:45 前)
+
+Variables:
+    EMA200(0),
+    SwingHighVal(0),
+    ATRval(0),
+    ChandelierStop(0),
+    GotNewSwingHigh(false),
+    SignalToEnter(false),
+    EntryHigh(0),
+    AvgVol(0),          // 平均成交量
+    InTimeWindow(false); // 新增：是否在允許交易的時間視窗內
+
+// 1. 200 EMA
+EMA200 = XAverage(Close, EMA_Length);
+
+// 2. 平均成交量
+AvgVol = XAverage(Ticks, VolLength);
+
+// 3. 時間區間過濾判斷 (>= 09:35 且 < 10:45)
+InTimeWindow = (Time >= StartTime AND Time < EndTime);
+
+// 4. Swing High 判斷：左右各2支K做確認
+GotNewSwingHigh = High[2] > High[3] AND High[2] > High[4] AND High[2] > High[1] AND High[2] > High[0];
+
+if GotNewSwingHigh then
+begin
+    SwingHighVal = High[2]; // 儲存已確認嘅Swing High價位
+end;
+
+// 5. ATR
+ATRval = AvgTrueRange(ATR_Length);
+
+//==== 吊燈跟蹤止損 ====
+if MarketPosition = 1 then
+begin
+    if High > EntryHigh then
+    begin
+        EntryHigh = High;
+    end;
+    ChandelierStop = EntryHigh - ChandelierATR * ATRval;
+end;
+
+//==== 入場訊號【新增時間過濾 InTimeWindow】====
+if High > SwingHighVal AND Close > EMA200 AND Ticks > AvgVol AND MarketPosition = 0 AND SwingHighVal > 0 AND InTimeWindow then
+begin
+    SignalToEnter = true;
+end
+else
+begin
+    if MarketPosition <> 0 then SignalToEnter = false;
+end;
+
+// 執行入場
+if SignalToEnter = true AND MarketPosition = 0 then
+begin
+    Buy("LongSwingBreak") 1 contracts this bar;
+    EntryHigh = High;
+    ChandelierStop = EntryHigh - ChandelierATR * ATRval;
+    SignalToEnter = false;
+end;
+
+// 吊燈止損離場 (出場不受時間限制，只要持倉就會執行追蹤止損)
+if MarketPosition = 1 AND Low < ChandelierStop then
+begin
+    Sell("ExitChandelier") 1 contracts this bar;
+end;
